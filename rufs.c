@@ -176,21 +176,19 @@ int rufs_mkfs() {
 		.vstat = {0}, // inode stat struct, initialized to zero
 	};
 
-	struct dirent . = {
+	struct dirent first_dirent = {
 		.ino = 0,
 		.valid = 1,
 		.name = ".",
 		.len = 1;
 	}
 
-	struct dirent .. = {
+	struct dirent second_dirent = {
 		.ino = 0,
 		.valid = 1,
 		.name = "..",
 		.len = 2;
 	}
-
-
 	return 0;
 }
 
