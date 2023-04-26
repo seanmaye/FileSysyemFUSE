@@ -165,7 +165,31 @@ int rufs_mkfs() {
 	disk_bitmap[0] = 1;		//first node is set as the root
 
 	// update inode for root directory
-	struct inode root = {1,1, sizeof(root), 0, 1,};
+	struct inode root_inode = {
+		.ino = 0, // inode number of root directory
+		.valid = 1, // root directory is valid
+		.size = 0, // root directory has no size (no data block)
+		.type = 0, // root directory type is directory
+		.link = 1, // root directory has one hard link (itself)
+		.direct_ptr = {0}, // root directory doesn't have any direct data block
+		.indirect_ptr = {0}, // root directory doesn't have any indirect data block
+		.vstat = {0}, // inode stat struct, initialized to zero
+	};
+
+	struct dirent . = {
+		.ino = 0,
+		.valid = 1,
+		.name = ".",
+		.len = 1;
+	}
+
+	struct dirent .. = {
+		.ino = 0,
+		.valid = 1,
+		.name = "..",
+		.len = 2;
+	}
+
 
 	return 0;
 }
