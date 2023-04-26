@@ -23,6 +23,9 @@
 #include "rufs.h"
 
 char diskfile_path[PATH_MAX];
+struct inode my_inode;
+bitmap_t inode_bitmap; 
+bitmap_t disk_bitmap; 
 
 // Declare your in-memory data structures here
 
@@ -140,16 +143,29 @@ int get_node_by_path(const char *path, uint16_t ino, struct inode *inode) {
 int rufs_mkfs() {
 
 	// Call dev_init() to initialize (Create) Diskfile
+	dev_init(diskfile_path);
 
 	// write superblock information
+	struct superblock superblock = {MAGIC_NUM,MAX_INUM,MAX_DNUM,
+	&superblock + sizeof(superblock),
+	&superblock + sizeof(superblock) + sizeof(inode_bitmap),
+	&superblock + sizeof(superblock) + sizeof(inode_bitmap) + sizeof(disk_bitmap), 
+	&superblock + sizeof(superblock) + sizeof(inode_bitmap) + sizeof(disk_bitmap) + sizeof(my_inode)*MAX_INUM};
 
 	// initialize inode bitmap
-
+	inode_bitmap[MAX_INUM]; 
+	memset(inode_bitmap, 0, sizeof(inode_bitmap));
+	
 	// initialize data block bitmap
-
+	disk_bitmap[MAX_DNUM];
+	memset(disk_bitmap, 0, sizeof(inode_bitmap));
+	 
 	// update bitmap information for root directory
+	inode_bitmap[0] = 1; 	//first node is set as the root
+	disk_bitmap[0] = 1;		//first node is set as the root
 
 	// update inode for root directory
+	struct inode root = {1,1, sizeof(root), 0, 1,};
 
 	return 0;
 }
@@ -160,6 +176,19 @@ int rufs_mkfs() {
  */
 static void *rufs_init(struct fuse_conn_info *conn) {
 
+if(access(diskfile_path, F_OK)==0){
+	// bit map is in memory so loop through and find all inodes 
+	// initialize memory strutcutres
+	struct superblock superblock;
+	memcpy(&superblock, &diskfile_path, sizeof(superblock));
+	for(int i = sizeof(superblock); i<MAX_INUM + sizeof(superblock); i+=sizeof(my_inode)){
+		//????
+	}
+}else{
+	printf("No disk file found");
+	rufs_mkfs();
+	
+}
 	// Step 1a: If disk file is not found, call mkfs
 
   // Step 1b: If disk file is found, just initialize in-memory data structures
@@ -171,7 +200,7 @@ static void *rufs_init(struct fuse_conn_info *conn) {
 static void rufs_destroy(void *userdata) {
 
 	// Step 1: De-allocate in-memory data structures
-
+	
 	// Step 2: Close diskfile
 
 }
