@@ -22,12 +22,19 @@
 #include "block.h"
 #include "rufs.h"
 
+
 char diskfile_path[PATH_MAX];
+struct inode my_inode;
+const size_t inode_size = sizeof(my_inode);
+const int inum_blocks = ((inode_size*MAX_INUM)/BLOCK_SIZE);
+const int total_mem = (BLOCK_SIZE*(3+inum_blocks+MAX_DNUM));
+char* phys_disk;
+
+// Declare your in-memory data structures here
 struct inode my_inode;
 bitmap_t inode_bitmap; 
 bitmap_t disk_bitmap; 
-
-// Declare your in-memory data structures here
+struct superblock superblock;
 
 /* 
  * Get available inode number from bitmap
@@ -35,10 +42,20 @@ bitmap_t disk_bitmap;
 int get_avail_ino() {
 
 	// Step 1: Read inode bitmap from disk
+	memcpy(inode_bitmap,&superblock+BLOCK_SIZE*3,sizeof(inode_bitmap));
+	int count;
 	
 	// Step 2: Traverse inode bitmap to find an available slot
+	for(int i = 0; i < MAX_INUM; i++){
+		if(inode_bitmap==0){
+			count = i;
+			break;
+		}
+	}
 
 	// Step 3: Update inode bitmap and write to disk 
+	inode_bitmap[count]=1;
+	// put something here ask question to TA/Prof about writing to disk
 
 	return 0;
 }
@@ -49,11 +66,20 @@ int get_avail_ino() {
 int get_avail_blkno() {
 
 	// Step 1: Read data block bitmap from disk
-	
+	memcpy(inode_bitmap,&superblock+BLOCK_SIZE*4,sizeof(inode_bitmap));
+
 	// Step 2: Traverse data block bitmap to find an available slot
+	int count;
+	for(int i = 0; i < MAX_DNUM; i++){
+		if(disk_bitmap==0){
+			count = i;
+			break;
+		}
+	}
 
 	// Step 3: Update data block bitmap and write to disk 
-
+	disk_bitmap[count]= 1;
+	//ask question to TA/Prof about writing to disk
 	return 0;
 }
 
@@ -63,21 +89,27 @@ int get_avail_blkno() {
 int readi(uint16_t ino, struct inode *inode) {
 
   // Step 1: Get the inode's on-disk block number
+  	int block_num = ino/(BLOCK_SIZE/sizeof(inode));
 
   // Step 2: Get offset of the inode in the inode on-disk block
+	int offset = ino%(BLOCK_SIZE/sizeof(inode));
 
   // Step 3: Read the block from disk and then copy into inode structure
+	memcpy(inode, &superblock+BLOCK_SIZE*(3+block_num)+offset*sizeof(inode),sizeof(inode));
 
 	return 0;
 }
 
 int writei(uint16_t ino, struct inode *inode) {
 
-	// Step 1: Get the block number where this inode resides on disk
-	
-	// Step 2: Get the offset in the block where this inode resides on disk
+	// Step 1: Get the inode's on-disk block number
+  	int block_num = ino/(BLOCK_SIZE/sizeof(inode));
+
+  	// Step 2: Get offset of the inode in the inode on-disk block
+	int offset = ino%(BLOCK_SIZE/sizeof(inode));
 
 	// Step 3: Write inode to disk 
+
 
 	return 0;
 }
@@ -130,23 +162,24 @@ int dir_remove(struct inode dir_inode, const char *fname, size_t name_len) {
  * namei operation
  */
 int get_node_by_path(const char *path, uint16_t ino, struct inode *inode) {
-	
-	// Step 1: Resolve the path name, walk through path, and finally, find its inode.
-	// Note: You could either implement it in a iterative way or recursive way
+    // Step 1: Resolve the path name, walk through path, and finally, find its inode.
+    // Note: You could either implement it in a iterative way or recursive way.
 
+	//dir_find(uint16_t ino, const char *fname, size_t name_len, struct dirent *dirent)
+	struct dirent direntFind;
+	dir_find(ino,path, sizeof(inode),&direntFind);
 	return 0;
 }
-
 /* 
  * Make file system
  */
 int rufs_mkfs() {
-
+	char* phys_disk = (char *)malloc(total_mem);
 	// Call dev_init() to initialize (Create) Diskfile
 	dev_init(diskfile_path);
 
 	// write superblock information
-	struct superblock superblock = {MAGIC_NUM,MAX_INUM,MAX_DNUM,
+	superblock = {MAGIC_NUM,MAX_INUM,MAX_DNUM,
 	&superblock + sizeof(superblock),
 	&superblock + sizeof(superblock) + sizeof(inode_bitmap),
 	&superblock + sizeof(superblock) + sizeof(inode_bitmap) + sizeof(disk_bitmap), 
@@ -183,14 +216,14 @@ int rufs_mkfs() {
 		.valid = 1,
 		.name = ".",
 		.len = 1,
-	}
+	};
 
 	struct dirent second_dirent = {
 		.ino = 0,
 		.valid = 1,
 		.name = "..",
 		.len = 2,
-	}
+	};
 	return 0;
 }
 
@@ -223,19 +256,34 @@ if(access(diskfile_path, F_OK)==0){
 static void rufs_destroy(void *userdata) {
 
 	// Step 1: De-allocate in-memory data structures
-	memset(inode_bitmap, o, sizeof(inode_bitmap);
-	memset(disk_bitmap, o, sizeof(disk_bitmap);
-	
+	memset(inode_bitmap, 0, sizeof(inode_bitmap));
+	memset(disk_bitmap, 0, sizeof(disk_bitmap));
+	struct inode root_inode = {
+		.ino = 0, // inode number of root directory
+		.valid = 1, // root directory is valid
+		.size = 0, // root directory has no size (no data block)
+		.type = 0, // root directory type is directory
+		.link = 1, // root directory has one hard link (itself)
+		.direct_ptr = {0}, // root directory doesn't have any direct data block
+		.indirect_ptr = {0}, // root directory doesn't have any indirect data block
+		.vstat = {0}, // inode stat struct, initialized to zero
+	};
+	memcpy(&diskfile_path+3*BLOCK_SIZE,&root_inode,sizeof(root_inode));
 
-
-	
 	// Step 2: Close diskfile
+	dev_close();	
 
 }
 
 static int rufs_getattr(const char *path, struct stat *stbuf) {
 
 	// Step 1: call get_node_by_path() to get inode from path
+	struct inode toGetNode;
+	
+	//search 
+	int result = get_node_by_path(path, &stbuf->st_ino, &toGetNode);
+	
+
 
 	// Step 2: fill attribute of file into stbuf from inode
 
