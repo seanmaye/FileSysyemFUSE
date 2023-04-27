@@ -175,19 +175,21 @@ int rufs_mkfs() {
 		.indirect_ptr = {0}, // root directory doesn't have any indirect data block
 		.vstat = {0}, // inode stat struct, initialized to zero
 	};
-
+	memcpy(&superblock+3*BLOCK_SIZE,&root_inode,sizeof(root_inode));
+	
+	//ask question to TA/PROF on where to put
 	struct dirent first_dirent = {
 		.ino = 0,
 		.valid = 1,
 		.name = ".",
-		.len = 1;
+		.len = 1,
 	}
 
 	struct dirent second_dirent = {
 		.ino = 0,
 		.valid = 1,
 		.name = "..",
-		.len = 2;
+		.len = 2,
 	}
 	return 0;
 }
@@ -203,9 +205,8 @@ if(access(diskfile_path, F_OK)==0){
 	// initialize memory strutcutres
 	struct superblock superblock;
 	memcpy(&superblock, &diskfile_path, sizeof(superblock));
-	for(int i = sizeof(superblock); i<MAX_INUM + sizeof(superblock); i+=sizeof(my_inode)){
-		//????
-	}
+	memcpy(&inode_bitmap, &diskfile_path[superblock.i_bitmap_blk], sizeof(inode_bitmap));
+	memcpy(&disk_bitmap, &diskfile_path[superblock.d_bitmap_blk], sizeof(disk_bitmap));
 }else{
 	printf("No disk file found");
 	rufs_mkfs();
@@ -222,6 +223,11 @@ if(access(diskfile_path, F_OK)==0){
 static void rufs_destroy(void *userdata) {
 
 	// Step 1: De-allocate in-memory data structures
+	memset(inode_bitmap, o, sizeof(inode_bitmap);
+	memset(disk_bitmap, o, sizeof(disk_bitmap);
+	
+
+
 	
 	// Step 2: Close diskfile
 
