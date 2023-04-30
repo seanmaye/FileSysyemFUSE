@@ -42,8 +42,7 @@ struct superblock *superblock;
 int get_avail_ino() {
 
 	// Step 1: Read inode bitmap from disk
-	bio_read(2,phys_disk);
-	inode_bitmap = phys_disk;
+	bio_read(superblock->i_bitmap_blk,inode_bitmap);
 	int count;
 	
 	// Step 2: Traverse inode bitmap to find an available slot
@@ -56,9 +55,7 @@ int get_avail_ino() {
 
 	// Step 3: Update inode bitmap and write to disk 
 	inode_bitmap[count]=1;
-	bio_write(2,inode_bitmap);
-
-	// put something here ask question to TA/Prof about writing to disk
+	bio_write(superblock->i_bitmap_blk,inode_bitmap);
 
 	return 0;
 }
@@ -69,8 +66,8 @@ int get_avail_ino() {
 int get_avail_blkno() {
 
 	// Step 1: Read data block bitmap from disk
-	// memcpy(inode_bitmap,&phys_disk+BLOCK_SIZE*4,sizeof(inode_bitmap));
-	bio_read(3,phys_disk);
+	
+	bio_read(superblock->d_bitmap_blk,phys_disk);
 	disk_bitmap = phys_disk;
 
 	// Step 2: Traverse data block bitmap to find an available slot
@@ -84,8 +81,8 @@ int get_avail_blkno() {
 
 	// Step 3: Update data block bitmap and write to disk 
 	disk_bitmap[count]= 1;
-	bio_write(3,disk_bitmap);
-	//ask question to TA/Prof about writing to disk
+	bio_write(superblock->d_bitmap_blk,disk_bitmap);
+	
 	return 0;
 }
 
@@ -101,9 +98,8 @@ int readi(uint16_t ino, struct inode *inode) {
 	int offset = ino%(BLOCK_SIZE/sizeof(inode));
 
   	// Step 3: Read the block from disk and then copy into inode structure
-	// memcpy(inode, &phys_disk+BLOCK_SIZE*(3+block_num)+offset*sizeof(inode),sizeof(inode));
 	bio_read(block_num,phys_disk);
-	inode = phys_disk[sizeof(inode)*offset];	//choose one
+	
 	inode = &phys_disk+offset;
 
 	return 0;
@@ -126,7 +122,7 @@ int writei(uint16_t ino, struct inode *inode) {
 	bio_read(block_num, phys_disk);
 	memcpy(&phys_disk+offset, &inode,sizeof(inode));
 	bio_write(block_num,phys_disk);
-	// memcpy(&phys_disk+BLOCK_SIZE*(3+block_num)+offset*sizeof(inode), inode,sizeof(inode));
+	
 
 	return 0;
 }
@@ -152,7 +148,7 @@ int dir_find(uint16_t ino, const char *fname, size_t name_len, struct dirent *di
 		 for(int j = 0; j < num_dirents; j++){
 			//open each dirent one by one and compare names
 			dir_entry = (struct dirent*)(phys_disk+j * sizeof(dirent));
-			if(dir_entry->name == fname){
+			if(strcmp(dir_entry->name, fname) == 0){
 				dirent = dir_entry;
 			}
 		 }
@@ -167,26 +163,53 @@ int dir_find(uint16_t ino, const char *fname, size_t name_len, struct dirent *di
 int dir_add(struct inode dir_inode, uint16_t f_ino, const char *fname, size_t name_len) {
 
 	// Step 1: Read dir_inode's data block and check each directory entry of dir_inode
-	
 	// Step 2: Check if fname (directory name) is already used in other entries
-
+	struct dirent *curr = (struct dirent*)malloc(sizeof(struct inode)*BLOCK_SIZE); 
+	for(int i =0; i<16; i++){
+		bio_read(dir_inode.direct_ptr[i],curr);
+		for(int j = 0;  j< (BLOCK_SIZE / sizeof(struct dirent)); j++){
+			if(curr->valid==1){
+			if(strncmp(curr->name, fname, name_len)){
+				return -1; //name already in use
+			}
+			}
+			curr++;
+		}
+	}
+	
 	// Step 3: Add directory entry in dir_inode's data block and write to disk
+	struct dirent *newEntry = (struct dirent*)malloc(sizeof(struct dirent));
+	newEntry->ino=dir_inode.ino;
+	newEntry->valid=1;
+	newEntry->len=strlen(fname);
+	strcpy(newEntry->name,fname);
+	
+	for(int i=0; i<16; i++){
+		if(dir_inode.direct_ptr[i]==NULL){
+			bio_write(dir_inode.direct_ptr[i], newEntry);
+		}
+		
+	}
+	
 
 	// Allocate a new data block for this directory if it does not exist
-
+	
 	// Update directory inode
-
+	dir_inode.size+=sizeof(newEntry);
+	dir_inode.vstat.st_blocks++;
+	time(&dir_inode.vstat.st_mtime);
 	// Write directory entry
-
+	
 	return 0;
 }
 
 int dir_remove(struct inode dir_inode, const char *fname, size_t name_len) {
 
 	// Step 1: Read dir_inode's data block and checks each directory entry of dir_inode
+	uint16_t ino = dir_inode.ino;
+	int block_num = (ino/(BLOCK_SIZE/sizeof(my_inode)))+3;
+	bio_read(block_num,phys_disk);
 	
-	// Step 2: Check if fname exist
-
 	// Step 3: If exist, then remove it from dir_inode's data block and write to disk
 
 	return 0;
@@ -198,13 +221,25 @@ int dir_remove(struct inode dir_inode, const char *fname, size_t name_len) {
 int get_node_by_path(const char *path, uint16_t ino, struct inode *inode) {
     // Step 1: Resolve the path name, walk through path, and finally, find its inode.
     // Note: You could either implement it in a iterative way or recursive way.
+	//can u try to do a dir method? lsure ike dir_add. ill do some googling for this one
 
-	
-	struct dirent *currentEntry = (struct dirent *)malloc(sizeof(struct dirent));
-	currentEntry->ino =0;
-	//what does it mean bywalk through the path 
-	
-	dir_find(currentEntry->ino,path, strlen(path),currentEntry);
+	//struct dirent *currentEntry = (struct dirent *)malloc(sizeof(struct dirent));
+	//currentEntry->ino =0;
+	char *new_path = strdup(path);	//the only way to copy a string apparently
+	char *tokenized = strtok(new_path, "/"); //breaks up path into individual parts ex: root/foo/bar = root, foo, bar
+	uint16_t curr = ino;
+	while(tokenized != NULL){
+		struct dirent dir_entry;
+		int checker = dir_find(curr,tokenized, strlen(tokenized), &dir_entry);
+		if(checker!=0){
+			free(new_path);	//free the strdup
+			return -1;
+		}
+		curr = dir_entry.ino; // gets next ino through dirent
+		tokenized = strtok(NULL, "/"); //move to next directory
+	}
+	readi(curr, inode);//reads last inode
+	free(new_path);	//free the strdup
 
 
 	
@@ -323,21 +358,6 @@ if(dev_open(diskfile_path)){
 static void rufs_destroy(void *userdata) {
 
 	// Step 1: De-allocate in-memory data structures
-	/*
-	memset(inode_bitmap, 0, sizeof(inode_bitmap));
-	memset(disk_bitmap, 0, sizeof(disk_bitmap));
-	struct inode root_inode = {
-		.ino = 0, // inode number of root directory
-		.valid = 1, // root directory is valid
-		.size = 0, // root directory has no size (no data block)
-		.type = 0, // root directory type is directory
-		.link = 1, // root directory has one hard link (itself)
-		.direct_ptr = {0}, // root directory doesn't have any direct data block
-		.indirect_ptr = {0}, // root directory doesn't have any indirect data block
-		.vstat = {0}, // inode stat struct, initialized to zero
-	};
-	memcpy(&diskfile_path+3*BLOCK_SIZE,&root_inode,sizeof(root_inode));
-	*/
 free(superblock);
 free(inode_bitmap);
 free(disk_bitmap);
@@ -350,10 +370,10 @@ free(disk_bitmap);
 static int rufs_getattr(const char *path, struct stat *stbuf) {
 
 	// Step 1: call get_node_by_path() to get inode from path
-	struct inode toGetNode;
+	struct inode* toGetNode;
 	
 	//search 
-	int result = get_node_by_path(path, &stbuf->st_ino, &toGetNode);
+	int result = get_node_by_path(path, &stbuf->st_ino, toGetNode);
 	
 
 
