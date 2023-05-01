@@ -399,7 +399,6 @@ static int rufs_opendir(const char *path, struct fuse_file_info *fi) {
 	// Step 1: Call get_node_by_path() to get inode from path
 	uint16_t ino = malloc(sizeof(uint16_t));
 	struct inode *toGet = malloc(sizeof(struct inode));
-	
 	// Step 2: If not find, return -1
 return get_node_by_path(path,ino,toGet);
     
