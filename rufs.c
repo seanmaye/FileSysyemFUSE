@@ -204,9 +204,9 @@ int dir_add(struct inode dir_inode, uint16_t f_ino, const char *fname, size_t na
 	biowrite(dir_inode.direct_ptr[block],curr);
 	return 0;
 }
-
+//WE DONT HAVE TO DO THIS WOOHOO!!!!
 int dir_remove(struct inode dir_inode, const char *fname, size_t name_len) {
-
+/*
 	// Step 1: Read dir_inode's data block and checks each directory entry of dir_inode
 	uint16_t ino = dir_inode.ino;
 
@@ -217,7 +217,7 @@ int dir_remove(struct inode dir_inode, const char *fname, size_t name_len) {
 	bio_read(block_num,directoryBlock);
 	
 	// Step 3: If exist, then remove it from dir_inode's data block and write to disk
-
+*/
 	return 0;
 }
 
@@ -379,14 +379,16 @@ static int rufs_getattr(const char *path, struct stat *stbuf) {
 	struct inode* toGetNode;
 	
 	//search 
-	int result = get_node_by_path(path, &stbuf->st_ino, toGetNode);
+	int result = get_node_by_path(path, stbuf->st_ino, toGetNode);
 	
 
 
 	// Step 2: fill attribute of file into stbuf from inode
-
 		stbuf->st_mode   = S_IFDIR | 0755;
-		stbuf->st_nlink  = 2;
+		stbuf->st_nlink  = toGetNode->vstat.st_nlink;
+		stbuf->st_gid= getgid();
+		stbuf->st_uid= getuid();
+		stbuf->st_size = toGetNode->vstat.st_size;
 		time(&stbuf->st_mtime);
 
 	return 0;
