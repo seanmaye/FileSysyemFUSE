@@ -397,10 +397,12 @@ static int rufs_getattr(const char *path, struct stat *stbuf) {
 static int rufs_opendir(const char *path, struct fuse_file_info *fi) {
 
 	// Step 1: Call get_node_by_path() to get inode from path
-
+	uint16_t ino = malloc(sizeof(uint16_t));
+	struct inode *toGet = malloc(sizeof(struct inode));
+	
 	// Step 2: If not find, return -1
-
-    return 0;
+return get_node_by_path(path,ino,toGet);
+    
 }
 
 static int rufs_readdir(const char *path, void *buffer, fuse_fill_dir_t filler, off_t offset, struct fuse_file_info *fi) {
