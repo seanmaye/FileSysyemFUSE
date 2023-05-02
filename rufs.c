@@ -45,14 +45,14 @@ int get_avail_ino() {
 	
 	// Step 2: Traverse inode bitmap to find an available slot
 	for(int i = 0; i < MAX_INUM; i++){
-		if(inode_bitmap[i]==0){
+		if(get_bitmap(inode_bitmap, i)==0){
 			count = i;
 			break;
 		}
 	}
 
 	// Step 3: Update inode bitmap and write to disk 
-	inode_bitmap[count]=1;
+	 set_bitmap(inode_bitmap, count);
 	bio_write(superblock->i_bitmap_blk,inode_bitmap);
 
 	return 0;
@@ -70,14 +70,14 @@ int get_avail_blkno() {
 	// Step 2: Traverse data block bitmap to find an available slot
 	int count;
 	for(int i = 0; i < MAX_DNUM; i++){
-		if(disk_bitmap[i]==0){
+		if(get_bitmap(disk_bitmap, i)==0){
 			count = i;
 			break;
 		}
 	}
 
 	// Step 3: Update data block bitmap and write to disk 
-	disk_bitmap[count]= 1;
+	set_bitmap(disk_bitmap, count);
 	bio_write(superblock->d_bitmap_blk,disk_bitmap);
 	
 	return 0;
@@ -201,7 +201,7 @@ int dir_add(struct inode dir_inode, uint16_t f_ino, const char *fname, size_t na
 	dir_inode.vstat.st_blocks++;
 	time(&dir_inode.vstat.st_mtime);
 	// Write directory entry
-	biowrite(dir_inode.direct_ptr[block],curr);
+	bio_write(dir_inode.direct_ptr[block],curr);
 	return 0;
 }
 //WE DONT HAVE TO DO THIS WOOHOO!!!!
@@ -288,7 +288,7 @@ int rufs_mkfs() {
 
 	// update inode for root directory
 	struct inode root_inode = {
-		.ino = 0, // inode number of root directory
+		.ino = 2, // inode number of root directory
 		.valid = 1, // root directory is valid
 		.size = 0, // root directory has no size (no data block)
 		.type = 0, // root directory type is directory
@@ -319,14 +319,14 @@ int rufs_mkfs() {
 	bio_write(superblock->d_start_blk, rootDirent1);
 
 	struct dirent second_dirent = {
-		.ino = 0,
+		.ino = 2,
 		.valid = 1,
 		.name = "..",
 		.len = 2,
 	};
 
 	struct dirent *rootDirent2 = (struct dirent*)malloc(BLOCK_SIZE);
-	rootDirent2->ino=0;
+	rootDirent2->ino=2;
 	strcpy(rootDirent2->name, '..');
 	rootDirent2->valid=1;
 	rootDirent2->len=2; 
@@ -354,23 +354,18 @@ if(dev_open(diskfile_path)){
 	// Step 1a: If disk file is not found, call mkfs
 	rufs_mkfs();
 }
-	
-
-
-
 	return NULL;
 }
 
 static void rufs_destroy(void *userdata) {
 
 	// Step 1: De-allocate in-memory data structures
-free(superblock);
-free(inode_bitmap);
-free(disk_bitmap);
+	free(superblock);
+	free(inode_bitmap);
+	free(disk_bitmap);
 
 	// Step 2: Close diskfile
-	dev_close();	
-
+	dev_close();
 }
 
 static int rufs_getattr(const char *path, struct stat *stbuf) {
@@ -381,8 +376,6 @@ static int rufs_getattr(const char *path, struct stat *stbuf) {
 	//search 
 	int result = get_node_by_path(path, stbuf->st_ino, toGetNode);
 	
-
-
 	// Step 2: fill attribute of file into stbuf from inode
 		stbuf->st_mode   = S_IFDIR | 0755;
 		stbuf->st_nlink  = toGetNode->vstat.st_nlink;
@@ -400,7 +393,7 @@ static int rufs_opendir(const char *path, struct fuse_file_info *fi) {
 	uint16_t ino = malloc(sizeof(uint16_t));
 	struct inode *toGet = malloc(sizeof(struct inode));
 	// Step 2: If not find, return -1
-return get_node_by_path(path,ino,toGet);
+	return get_node_by_path(path,ino,toGet);
     
 }
 
@@ -456,7 +449,6 @@ static int rufs_releasedir(const char *path, struct fuse_file_info *fi) {
 }
 
 static int rufs_create(const char *path, mode_t mode, struct fuse_file_info *fi) {
-
 	// Step 1: Use dirname() and basename() to separate parent directory path and target file name
 
 	// Step 2: Call get_node_by_path() to get inode of parent directory
