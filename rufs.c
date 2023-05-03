@@ -154,9 +154,6 @@ int dir_find(uint16_t ino, const char *fname, size_t name_len, struct dirent *di
 	int num_dirents = BLOCK_SIZE/sizeof(struct dirent);
 
 	for(int i = 0; i < 16; i++) {
-		if(inode->direct_ptr[i]==0){
-			return -1;
-		}
 	
 		 bio_read(inode->direct_ptr[i], dir_entry);
 		 for(int j = 0; j < num_dirents; j++){
@@ -168,13 +165,14 @@ int dir_find(uint16_t ino, const char *fname, size_t name_len, struct dirent *di
 			}
 			
 			}
+			//get next dirent
 			dir_entry++;
 		 }
 		 
   }
   //If the name matches, then copy directory entry to dirent structure
 
-	return 0;
+	return -1;
 }
 
 int dir_add(struct inode dir_inode, uint16_t f_ino, const char *fname, size_t name_len) {
@@ -186,9 +184,6 @@ int dir_add(struct inode dir_inode, uint16_t f_ino, const char *fname, size_t na
  
 
 	for(int i =0; i<16; i++){
-		if(dir_inode.direct_ptr[i]==0){
-			break;//data empty
-		}
 		bio_read(dir_inode.direct_ptr[i],curr);
 		for(int j = 0;  j< (BLOCK_SIZE / sizeof(struct dirent)); j++){
 			if(curr->valid==1){
@@ -196,6 +191,7 @@ int dir_add(struct inode dir_inode, uint16_t f_ino, const char *fname, size_t na
 				return -1; //name already in use
 			}
 			}
+			//get next dirent
 			curr++;
 		}
 	}
@@ -207,6 +203,7 @@ int dir_add(struct inode dir_inode, uint16_t f_ino, const char *fname, size_t na
 	newEntry->len=strlen(fname);
 	strcpy(newEntry->name,fname);
 	int block=0;
+	//printf("enter check\n");
 	for(int i=0; i<16; i++){
 		if(dir_inode.direct_ptr[i]==0){// need to create whole block
 			dir_inode.direct_ptr[i]= get_avail_blkno;
@@ -218,7 +215,7 @@ int dir_add(struct inode dir_inode, uint16_t f_ino, const char *fname, size_t na
 		}
 		bio_read(dir_inode.direct_ptr[i],curr);
 		newEntry = curr;
-
+		//printf("enter check1\n");
 		for(int j=0; j< num_dirents; j++){
 			if(newEntry->valid==0){
 				newEntry->ino = f_ino;
@@ -244,6 +241,7 @@ int dir_add(struct inode dir_inode, uint16_t f_ino, const char *fname, size_t na
 	struct inode* ptrdir = (struct inode*)malloc(sizeof(struct inode));
 	writei(dir_inode.ino,ptrdir);
 	bio_write(dir_inode.direct_ptr[block],curr);
+	//printf("exit\n");
 	return 0;
 }
 //WE DONT HAVE TO DO THIS WOOHOO!!!!
@@ -287,15 +285,19 @@ int get_node_by_path(const char *path, uint16_t ino, struct inode *inode) {
 	//char *new_path = strdup(path);	//the only way to copy a string apparently
 	char * delim = (char *)malloc(2 * sizeof(char));
 	delim[0] = '/' ;
+	//we need this for some reason
 	delim[1] = '\0'; 
 	char * tokenized = strtok(path, delim) ;
 	//printf("new_path: %s\n", path);
 	//char *tokenized = strtok(new_path, "/"); //breaks up path into individual parts ex: root/foo/bar = root, foo, bar
+	struct dirent *dir_entry = (struct dirent*)malloc(sizeof(struct dirent));
 	//printf("tokenized: %s\n", tokenized);
 	if(strcmp(path,delim)==0){
 		tokenized =NULL;
+		dir_entry->ino = 1;
+		return 0;
 	}
-	struct dirent *dir_entry = (struct dirent*)malloc(sizeof(struct dirent));
+	
 	uint16_t curr = ino;
 	dir_entry->ino = ino; 
 	while(tokenized != NULL){
@@ -372,7 +374,6 @@ int rufs_mkfs() {
 	root_inode->type =1;
 	//printf("setting root inide direct ptr\n");
 	root_inode->direct_ptr[0] = superblock->d_bitmap_blk;
-	root_inode->direct_ptr[1]=0;
 	
 	//printf("creating stats for inode\n");
 	struct stat * rstat = (struct stat*)malloc(sizeof(struct stat));
@@ -479,13 +480,6 @@ static int rufs_getattr(const char *path, struct stat *stbuf) {
 	// Step 2: fill attribute of file into stbuf from inode
 	//we might not need this/*
 	*stbuf = toGetNode->vstat;
-	/*
-		stbuf->st_mode   = S_IFDIR | 0755;
-		stbuf->st_nlink  = toGetNode->vstat.st_nlink;
-		stbuf->st_gid= getgid();
-		stbuf->st_uid= getuid();
-		stbuf->st_size = toGetNode->vstat.st_size;
-		time(&stbuf->st_mtime);*/
 
 	return 0;
 }
@@ -498,6 +492,7 @@ static int rufs_opendir(const char *path, struct fuse_file_info *fi) {
 	// Step 2: If not find, return -1
 	if(get_node_by_path(path,1,toGet)==0){
 		if(toGet->valid){
+			//we can free this i think we only care about the inode that is set in getnode
 			free(toGet);
 			return 0;
 		}
@@ -512,10 +507,6 @@ static int rufs_readdir(const char *path, void *buffer, fuse_fill_dir_t filler, 
 	// Step 1: Call get_node_by_path() to get inode from path
 	struct inode* dir_inode = (struct inode*)malloc(sizeof(struct inode));
     int node_num = get_node_by_path(path, 1, dir_inode);
-
-	if(node_num==-1){
-		return NULL;
-	}
 	
 	// Step 2: Read directory entries from its data blocks, and copy them to filler
 	for (int i = 0; i < 16;  i++){
@@ -567,6 +558,7 @@ static int rufs_mkdir(const char *path, mode_t mode) {
 
 	// Step 5: Update inode for target directory
 	//initialize direct pointers maybe
+	
 	struct inode *new_inode = (struct inode*)malloc(sizeof(struct inode));
 	new_inode->valid = 1;
 	new_inode->ino = nextInode;
@@ -576,7 +568,7 @@ static int rufs_mkdir(const char *path, mode_t mode) {
 	struct inode * toUpdate = (struct inode *)malloc(BLOCK_SIZE);
 	bio_write(new_inode->direct_ptr[0], (void*)toUpdate);
 	struct stat * rstat = (struct stat*)malloc(sizeof(struct stat));
-
+//printf("setting inodes\n");
 	new_inode->direct_ptr[1]=0;
 	new_inode->direct_ptr[0]=1;
 	new_inode->type =1;
@@ -593,7 +585,7 @@ static int rufs_mkdir(const char *path, mode_t mode) {
 		free(parent_dir_inode);
 	// Step 6: Call writei() to write inode to disk
 	writei(nextInode, new_inode);
-
+//printf("setting inodes2\n");
 	//need to make .. and .
 	struct dirent* sameDir = (struct dirent *)malloc(BLOCK_SIZE);
 	sameDir->ino = nextInode;
@@ -602,7 +594,7 @@ static int rufs_mkdir(const char *path, mode_t mode) {
 	nameSame[0] = '.' ;
 	nameSame[1] = '\0';
 	strncpy(sameDir->name, nameSame, 2);
-
+//printf("setting inodes3\n");
 	struct dirent *parentDirent= sameDir+1;
 	parentDirent->ino=parentDirent->ino;
 	parentDirent->valid=1;
@@ -685,6 +677,7 @@ static int rufs_open(const char *path, struct fuse_file_info *fi) {
 	// Step 2: If not find, return -1
 	if(get_node_by_path(path,1,toGet)==0){
 		if(toGet->valid){
+			//we can free this i think we only care about the inode that is set in getnode
 			free(toGet);
 			return 0;
 		}
