@@ -124,18 +124,13 @@ int writei(uint16_t ino, struct inode *inode) {
 	int offset = ino%(BLOCK_SIZE/sizeof(inode));
 
 	// Step 3: Write inode to disk 
+	struct inode *inodeblock = (struct inode *)malloc(BLOCK_SIZE) ;
+	bio_read(block_num, (void*) inodeblock);
 
-
-	// use bio read to get 
-	// bio_write(block_num,inode);
-	void *inodeBlock = (void*)malloc(BLOCK_SIZE);
-
-	bio_read(block_num, inodeBlock);
-
-	memcpy(&inodeBlock+offset, &inode,sizeof(inode));
-	bio_write(block_num,inodeBlock);
+	memcpy(inodeblock+offset, &inode,sizeof(inode));
+	bio_write(block_num,inodeblock);
 	
-	free(inodeBlock);
+	free(inodeblock);
 	return 0;
 }
 
@@ -150,21 +145,28 @@ int dir_find(uint16_t ino, const char *fname, size_t name_len, struct dirent *di
 	readi(ino, inode);
 
 	// Step 2: Get data block of current directory from inode
-	int* list_of_ptrs = inode->direct_ptr;
+	// int* list_of_ptrs = inode->direct_ptr;
 	struct dirent *dir_entry = (struct dirent*)malloc(sizeof(struct inode)*BLOCK_SIZE); 
 	// Step 3: Read directory's data block and check each directory entry.
 	int num_dirents = BLOCK_SIZE/sizeof(struct dirent);
+
 	for(int i = 0; i < 16; i++) {
+		if(inode->direct_ptr[i]==0){
+			return -1;
+		}
 	
 		 bio_read(inode->direct_ptr[i], dir_entry);
 		 for(int j = 0; j < num_dirents; j++){
 			//open each dirent one by one and compare names
-			if(strcmp(dir_entry->name, fname) == 0){
-				dirent = dir_entry;
+			if(dir_entry->valid==1){
+				if(strcmp(dir_entry->name, fname) == 0){
+				*dirent = *dir_entry;
+				return 0;
+			}
+			
 			}
 			dir_entry++;
 		 }
-
 		 
   }
   //If the name matches, then copy directory entry to dirent structure
@@ -176,8 +178,14 @@ int dir_add(struct inode dir_inode, uint16_t f_ino, const char *fname, size_t na
 	printf("inside dir_add\n");
 	// Step 1: Read dir_inode's data block and check each directory entry of dir_inode
 	// Step 2: Check if fname (directory name) is already used in other entries
-	struct dirent *curr = (struct dirent*)malloc(sizeof(struct inode)*BLOCK_SIZE); 
+	struct dirent *curr = (struct dirent*)malloc(sizeof(struct inode)*BLOCK_SIZE);
+	int num_dirents = BLOCK_SIZE/sizeof(struct dirent);
+ 
+
 	for(int i =0; i<16; i++){
+		if(dir_inode.direct_ptr[i]==0){
+			break;//data empty
+		}
 		bio_read(dir_inode.direct_ptr[i],curr);
 		for(int j = 0;  j< (BLOCK_SIZE / sizeof(struct dirent)); j++){
 			if(curr->valid==1){
@@ -195,24 +203,43 @@ int dir_add(struct inode dir_inode, uint16_t f_ino, const char *fname, size_t na
 	newEntry->valid=1;
 	newEntry->len=strlen(fname);
 	strcpy(newEntry->name,fname);
-	int block;
+	int block=0;
 	for(int i=0; i<16; i++){
-		if(dir_inode.direct_ptr[i]==NULL){
-			block=i;
-			bio_write(dir_inode.direct_ptr[i], newEntry);
+		if(dir_inode.direct_ptr[i]==0){// need to create whole block
+			dir_inode.direct_ptr[i]= get_avail_blkno;
+			struct inode* newBlock = (struct inode*)malloc(BLOCK_SIZE);
+
+			bio_write(dir_inode.direct_ptr[i], newBlock);
+			free(newBlock);
+			dir_inode.vstat.st_blocks++;
+		}
+		bio_read(dir_inode.direct_ptr[i],curr);
+		newEntry = curr;
+
+		for(int j=0; j< num_dirents; j++){
+			if(newEntry->valid==0){
+				newEntry->ino = f_ino;
+				newEntry->valid =1;
+				break;
+			}
+			newEntry++;
+		}if(newEntry->valid==1){
 			break;
 		}
-		
+		block++;
 	}
 	
 
 	// Allocate a new data block for this directory if it does not exist
+	
 	
 	// Update directory inode
 	dir_inode.size+=sizeof(newEntry);
 	dir_inode.vstat.st_blocks++;
 	time(&dir_inode.vstat.st_mtime);
 	// Write directory entry
+	struct inode* ptrdir = (struct inode*)malloc(sizeof(struct inode));
+	writei(dir_inode.ino,ptrdir);
 	bio_write(dir_inode.direct_ptr[block],curr);
 	return 0;
 }
@@ -267,13 +294,14 @@ int get_node_by_path(const char *path, uint16_t ino, struct inode *inode) {
 	}
 	struct dirent *dir_entry = (struct dirent*)malloc(sizeof(struct dirent));
 	uint16_t curr = ino;
+	dir_entry->ino = ino; 
 	while(tokenized != NULL){
-		int checker = dir_find(curr,tokenized, (size_t)strlen(tokenized), &dir_entry);
+		int checker = dir_find(dir_entry->ino,(const char *)tokenized, (size_t)strlen(tokenized), dir_entry);
 		if(checker==-1){
 			free(new_path);	//free the strdup
 			return -1;
 		}
-		curr = dir_entry.ino; // gets next ino through dirent
+		curr = dir_entry->ino; // gets next ino through dirent
 		printf("ino: %d",curr);
 		tokenized = strtok(NULL, delim); //move to next directory
 	}
@@ -576,18 +604,21 @@ static int rufs_create(const char *path, mode_t mode, struct fuse_file_info *fi)
 	// Step 3: Call get_avail_ino() to get an available inode number
 	int availableInode = get_avail_ino();
 	// Step 4: Call dir_add() to add directory entry of target file to parent directory
-	dir_add(*parent_inode, availableInode,target_dir_name, strlen(target_dir_name));
+	dir_add(*parent_inode, availableInode,(const char *)target_dir_name, strlen(target_dir_name));
 	// Step 5: Update inode for target file
 	struct inode* fileInode = (struct inode*)malloc(sizeof(struct inode));
 	fileInode->ino=availableInode;
 	fileInode->direct_ptr[0]=get_avail_blkno;
+	fileInode->valid =1; 
+	fileInode->direct_ptr[1]=0;
+	fileInode->size=0;
 	
 	struct stat * rstat = (struct stat*)malloc(sizeof(struct stat));
 	
 	rstat->st_mode   = S_IFREG | 0666;
-		rstat->st_nlink  = 2;
+		
 		time(&rstat->st_mtime);
-		rstat->st_blksize=BLOCK_SIZE;
+		rstat->st_nlink=1;
 		rstat->st_blocks=1;
 		fileInode->vstat=*rstat;
 		bio_write(superblock->i_start_blk, fileInode);
