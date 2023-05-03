@@ -27,7 +27,7 @@
 
 char diskfile_path[PATH_MAX];
 size_t inode_size = sizeof(struct inode);
-//void* phys_disk;
+
 
 // Declare your in-memory data structures here
 struct inode my_inode;
@@ -40,6 +40,7 @@ struct superblock *superblock;
  * Get available inode number from bitmap
  */
 int get_avail_ino() {
+	printf("inside get_avail_ino\n");
 
 	// Step 1: Read inode bitmap from disk
 	bio_read(superblock->i_bitmap_blk,inode_bitmap);
@@ -64,6 +65,7 @@ int get_avail_ino() {
  * Get available data block number from bitmap
  */
 int get_avail_blkno() {
+		printf("inside get_avail_blkno\n");
 
 	// Step 1: Read data block bitmap from disk
 	
@@ -89,22 +91,31 @@ int get_avail_blkno() {
  * inode operations
  */
 int readi(uint16_t ino, struct inode *inode) {
+		printf("inside readi\n");
+
 
  	// Step 1: Get the inode's on-disk block number
-  	int block_num = ino/(BLOCK_SIZE/sizeof(inode))+superblock->i_start_blk;
+	/*printf("superblock start i block number: %d \n",superblock->i_start_blk);
+	printf("superblock start i block number: %d \n",superblock->d_bitmap_blk);
+	printf("superblock start i block number: %d \n",superblock->i_bitmap_blk);
+	printf("superblock start i block number: %d \n",superblock->d_start_blk);*/
+  	int block_num = (ino/(BLOCK_SIZE/sizeof(struct inode)))+superblock->i_bitmap_blk;
 
   	// Step 2: Get offset of the inode in the inode on-disk block
-	int offset = ino%(BLOCK_SIZE/sizeof(inode));
-	void * inodeBlock = (void*)malloc(BLOCK_SIZE);
+	int offset = ino%(BLOCK_SIZE/sizeof(struct inode));
+	struct inode * inodeBlock = (struct inode*)malloc(BLOCK_SIZE);
   	// Step 3: Read the block from disk and then copy into inode structure
-	bio_read(block_num,inodeBlock);
+	printf("starting bio_read\n");
+	printf("block_num: %d\n", block_num);
+	bio_read(block_num,(void *)inodeBlock);
 	
-	inode = &inodeBlock+offset;
+	inode = (inodeBlock+offset);
 	free(inodeBlock);
 	return 0;
 }
 
 int writei(uint16_t ino, struct inode *inode) {
+	printf("inside writei\n");
 
 	// Step 1: Get the inode's on-disk block number
   	int block_num = (ino/(BLOCK_SIZE/sizeof(inode)))+superblock->i_start_blk;
@@ -133,19 +144,19 @@ int writei(uint16_t ino, struct inode *inode) {
  * directory operations
  */
 int dir_find(uint16_t ino, const char *fname, size_t name_len, struct dirent *dirent) {
-
+		printf("inside dir_find\n");
 	// Step 1: Call readi() to get the inode using ino (inode number of current directory)
-	struct inode inode;
-	readi(ino, &inode);
+	struct inode *inode = (struct inode*)malloc(sizeof(struct inode));
+	readi(ino, inode);
 
 	// Step 2: Get data block of current directory from inode
-	int* list_of_ptrs = inode.direct_ptr;
+	int* list_of_ptrs = inode->direct_ptr;
 	struct dirent *dir_entry = (struct dirent*)malloc(sizeof(struct inode)*BLOCK_SIZE); 
 	// Step 3: Read directory's data block and check each directory entry.
 	int num_dirents = BLOCK_SIZE/sizeof(struct dirent);
 	for(int i = 0; i < 16; i++) {
 	
-		 bio_read(inode.direct_ptr[i], dir_entry);
+		 bio_read(inode->direct_ptr[i], dir_entry);
 		 for(int j = 0; j < num_dirents; j++){
 			//open each dirent one by one and compare names
 			if(strcmp(dir_entry->name, fname) == 0){
@@ -162,7 +173,7 @@ int dir_find(uint16_t ino, const char *fname, size_t name_len, struct dirent *di
 }
 
 int dir_add(struct inode dir_inode, uint16_t f_ino, const char *fname, size_t name_len) {
-
+	printf("inside dir_add\n");
 	// Step 1: Read dir_inode's data block and check each directory entry of dir_inode
 	// Step 2: Check if fname (directory name) is already used in other entries
 	struct dirent *curr = (struct dirent*)malloc(sizeof(struct inode)*BLOCK_SIZE); 
@@ -237,110 +248,151 @@ int dir_remove(struct inode dir_inode, const char *fname, size_t name_len) {
  * namei operation
  */
 int get_node_by_path(const char *path, uint16_t ino, struct inode *inode) {
+	printf("inside get_node_by_path\n");
     // Step 1: Resolve the path name, walk through path, and finally, find its inode.
     // Note: You could either implement it in a iterative way or recursive way.
 
 	//struct dirent *currentEntry = (struct dirent *)malloc(sizeof(struct dirent));
 	//currentEntry->ino =0;
 	char *new_path = strdup(path);	//the only way to copy a string apparently
-	char *tokenized = strtok(new_path, "/"); //breaks up path into individual parts ex: root/foo/bar = root, foo, bar
+	char * delim = (char *)malloc(2 * sizeof(char));
+	delim[0] = '/' ;
+	delim[1] = '\0'; 
+	char * tokenized = strtok(new_path, delim) ;
+	printf("new_path: %c\n", new_path);
+	//char *tokenized = strtok(new_path, "/"); //breaks up path into individual parts ex: root/foo/bar = root, foo, bar
+	printf("tokenized: %c\n", tokenized);
+	if(strcmp(path,delim)==0){
+		tokenized =NULL;
+	}
+	struct dirent *dir_entry = (struct dirent*)malloc(sizeof(struct dirent));
 	uint16_t curr = ino;
 	while(tokenized != NULL){
-		struct dirent dir_entry;
-		int checker = dir_find(curr,tokenized, strlen(tokenized), &dir_entry);
-		if(checker!=0){
+		int checker = dir_find(curr,tokenized, (size_t)strlen(tokenized), &dir_entry);
+		if(checker==-1){
 			free(new_path);	//free the strdup
 			return -1;
 		}
 		curr = dir_entry.ino; // gets next ino through dirent
-		tokenized = strtok(NULL, "/"); //move to next directory
+		printf("ino: %d",curr);
+		tokenized = strtok(NULL, delim); //move to next directory
 	}
+
+	dir_entry->ino = curr;
 	readi(curr, inode);//reads last inode
+	
 	free(new_path);	//free the strdup
+	printf("finsihed getnodebypath\n");
 	return 0;
 }
 /* 
  * Make file system
  */
 int rufs_mkfs() {
-	char* phys_disk = (char *)malloc(BLOCK_SIZE);
+	printf("inside rufs_mkfs\n");
 	// Call dev_init() to initialize (Create) Diskfile
 	dev_init(diskfile_path);
-	
+	printf(" creating superblock\n");
 	// write superblock information
 	///* start block of inode bitmap */  just make it 1
 	superblock = (struct superblock*)malloc(BLOCK_SIZE);
 	superblock->magic_num=MAGIC_NUM;
 	superblock->max_inum=MAX_INUM;
 	superblock->max_dnum=MAX_DNUM;
-	superblock->i_bitmap_blk=1;
-	superblock->d_bitmap_blk=2;
-	superblock->i_start_blk=3;
-	superblock->d_bitmap_blk= superblock->i_start_blk = (sizeof(struct inode)*(MAX_INUM/BLOCK_SIZE));
-	bio_write(0, &superblock);
+	superblock->i_bitmap_blk = 1 ;
+	superblock->d_bitmap_blk = 2 ;
+	superblock->i_start_blk = 3 ;
+	superblock->d_start_blk = 3 + ((sizeof(struct inode) * MAX_INUM) / BLOCK_SIZE) ;
+	
+	/*printf("superblock start i block number: %d \n",superblock->i_start_blk);
+	printf("superblock start i block number: %d \n",superblock->d_bitmap_blk);
+	printf("superblock start i block number: %d \n",superblock->i_bitmap_blk);
+	printf("superblock start i block number: %d \n",superblock->d_start_blk);*/
+	bio_write(0, superblock);
+	printf("wrote to disk\n");
 
 	// initialize inode bitmap
+	printf("creating inode bitmap\n");
 	inode_bitmap= (bitmap_t)malloc(BLOCK_SIZE);
 	
 	
 	// initialize data block bitmap
+	printf("creating disk bitmap\n");
 	disk_bitmap = (bitmap_t)malloc(BLOCK_SIZE);
 	 
 	// update bitmap information for root directory
-
+	printf("setting inode bitmap\n");
 	set_bitmap(inode_bitmap,0);//first node is set as the root
+	printf("setting disk bitmap\n");
 	set_bitmap(disk_bitmap,0);//first node is set as the root
+	printf("writing inode bitmap to disk\n");
 	bio_write(superblock->i_bitmap_blk, &inode_bitmap);
+	printf("writing disk bitmap to disk\n");
 	bio_write(superblock->d_bitmap_blk,&disk_bitmap);
 
 
 	// update inode for root directory
-	struct inode root_inode = {
-		.ino = 1, // inode number of root directory
-		.valid = 1, // root directory is valid
-		.size = 0, // root directory has no size (no data block)
-		.type = 0, // root directory type is directory
-		.link = 1, // root directory has one hard link (itself)
-		.direct_ptr = {0}, // root directory doesn't have any direct data block
-		.indirect_ptr = {0}, // root directory doesn't have any indirect data block
-		.vstat = {0}, // inode stat struct, initialized to zero
-	};
+	printf("creating inode\n");
+	struct inode* root_inode = (struct inode*)malloc(sizeof(struct inode));
+	root_inode->ino=1;
+	root_inode->valid =1;
+
+	printf("setting root inide direct ptr\n");
+	root_inode->direct_ptr[0] = superblock->d_bitmap_blk;
+	root_inode->direct_ptr[1]=0;
 	
-	
-	
+	printf("creating stats for inode\n");
 	struct stat * rstat = (struct stat*)malloc(sizeof(struct stat));
 	//dont use this for nodes or somthing make sure for non-directories you don't set the mode as this
 	rstat->st_mode   = S_IFDIR | 0755;
-		rstat->st_nlink  = 2;
-		time(&rstat->st_mtime);
-		rstat->st_blksize=BLOCK_SIZE;
-		rstat->st_blocks=1;
-		root_inode.vstat=*rstat;
-		bio_write(superblock->i_start_blk, &root_inode);
-		free(rstat);
+	rstat->st_nlink  = 2;
+	time(&rstat->st_mtime);
+	rstat->st_blksize=BLOCK_SIZE;
+	rstat->st_blocks=1;
+	root_inode->vstat=*rstat;
+	bio_write(superblock->i_start_blk, &root_inode);
+	free(rstat);
 
-	
-	struct dirent *rootDirent1 = (struct dirent*)malloc(BLOCK_SIZE);
-	rootDirent1->ino=0;
-	strcpy(rootDirent1->name, '.');
+	printf("creating root dirent for root inode\n");
+	struct dirent *rootDirent = (struct dirent*)malloc(BLOCK_SIZE);
+	printf("creating dirent for root inode0\n");
+	rootDirent->ino=1;
+	//we need to add a terminating character like this for some reason 
+	char nameRoot[2];
+	nameRoot[0] = '/' ;
+	nameRoot[1] = '\0';
+	printf("creating dirent for root inode1\n");
+	strncpy(rootDirent->name, nameRoot,2);
+
+	printf("creating dirent for root inode2\n");
+
+	struct dirent *rootDirent1 = rootDirent+1;
+	char nameDirent1[2];
+	nameDirent1[0] = '.' ;
+	nameDirent1[1] = '\0';
+	strncpy(rootDirent1->name, nameDirent1,2);
+	rootDirent1->ino=1;
 	rootDirent1->valid=1;
-	rootDirent1->len=1; 
-	bio_write(superblock->d_start_blk, rootDirent1);
+	
+	printf("creating dirent for root inode3\n");
 
-	struct dirent second_dirent = {
-		.ino = 2,
-		.valid = 1,
-		.name = "..",
-		.len = 2,
-	};
-
-	struct dirent *rootDirent2 = (struct dirent*)malloc(BLOCK_SIZE);
-	rootDirent2->ino=2;
-	strcpy(rootDirent2->name, '..');
+	struct dirent *rootDirent2 = rootDirent1+1;
+	rootDirent2->ino=1;
 	rootDirent2->valid=1;
-	rootDirent2->len=2; 
-	bio_write(superblock->d_start_blk+1, rootDirent2);
+	char nameDirent2[3];
+	printf("creating name for dirent2");
+	nameDirent2[0] = '.' ;
+	nameDirent2[1] = '.' ;
+	nameDirent2[2] = '\0';
+	printf("setting name for dirent2");
+	strncpy(rootDirent2->name, nameDirent2,3);
+	printf("starting biowrite");
+	bio_write(superblock->d_start_blk, rootDirent);
+	//for(int )
 	set_bitmap(disk_bitmap,1);
+	printf("done with rufs_mkfs");
+	free(rootDirent);
+	free(root_inode);
 	return 0;
 }
 
@@ -349,25 +401,30 @@ int rufs_mkfs() {
  * FUSE file operations
  */
 static void *rufs_init(struct fuse_conn_info *conn) {
+	  printf("inside rufs_init\n");
+	
 
-if(dev_open(diskfile_path)){
-	  // Step 1b: If disk file is found, just initialize in-memory data structures
-  // and read superblock from disk
-	superblock = (struct superblock*)malloc(BLOCK_SIZE);
+	// Step 1a: If disk file is not found, call mkfs
+	if(dev_open(diskfile_path)==-1){
+		rufs_mkfs();
+		return NULL;
+	}else{superblock = (struct superblock*)malloc(BLOCK_SIZE);
 	bio_read(0,superblock);
 	inode_bitmap= (bitmap_t)malloc(BLOCK_SIZE);
 	disk_bitmap= (bitmap_t)malloc(BLOCK_SIZE);
 	bio_read(superblock->i_bitmap_blk,inode_bitmap);
 	bio_read(superblock->d_bitmap_blk,disk_bitmap);
-}else{
-	// Step 1a: If disk file is not found, call mkfs
-	rufs_mkfs();
-}
-	return NULL;
+	}
+
+// Step 1b: If disk file is found, just initialize in-memory data structures
+  // and read superblock from disk
+	
+
+	return 0;
 }
 
 static void rufs_destroy(void *userdata) {
-
+	printf("inside rufs_destroy\n");
 	// Step 1: De-allocate in-memory data structures
 	free(superblock);
 	free(inode_bitmap);
@@ -378,7 +435,7 @@ static void rufs_destroy(void *userdata) {
 }
 
 static int rufs_getattr(const char *path, struct stat *stbuf) {
-
+	printf("inside rufs_getattr\n");
 	// Step 1: call get_node_by_path() to get inode from path
 	struct inode* toGetNode;
 	
@@ -386,18 +443,21 @@ static int rufs_getattr(const char *path, struct stat *stbuf) {
 	int result = get_node_by_path(path, 1, toGetNode);
 	
 	// Step 2: fill attribute of file into stbuf from inode
+	//we might not need this/*
+	*stbuf = toGetNode->vstat;
+	/*
 		stbuf->st_mode   = S_IFDIR | 0755;
 		stbuf->st_nlink  = toGetNode->vstat.st_nlink;
 		stbuf->st_gid= getgid();
 		stbuf->st_uid= getuid();
 		stbuf->st_size = toGetNode->vstat.st_size;
-		time(&stbuf->st_mtime);
+		time(&stbuf->st_mtime);*/
 
 	return 0;
 }
 
 static int rufs_opendir(const char *path, struct fuse_file_info *fi) {
-
+	printf("inside rufs_opendir\n");
 	// Step 1: Call get_node_by_path() to get inode from path
 	uint16_t ino = malloc(sizeof(uint16_t));
 	struct inode *toGet = malloc(sizeof(struct inode));
@@ -407,7 +467,7 @@ static int rufs_opendir(const char *path, struct fuse_file_info *fi) {
 }
 
 static int rufs_readdir(const char *path, void *buffer, fuse_fill_dir_t filler, off_t offset, struct fuse_file_info *fi) {
-
+printf("inside rufs_readdir\n");
 	// Step 1: Call get_node_by_path() to get inode from path
 	struct inode dir_inode;
     int node_num = get_node_by_path(path, 1, &dir_inode);
@@ -436,7 +496,7 @@ static int rufs_readdir(const char *path, void *buffer, fuse_fill_dir_t filler, 
 
 
 static int rufs_mkdir(const char *path, mode_t mode) {
-
+	printf("inside rufs_mkdir\n");
 	// Step 1: Use dirname() and basename() to separate parent directory path and target directory name
 	char* path_copy = strdup(path);
     char* parent_dir_path = dirname(path_copy);
@@ -504,10 +564,11 @@ static int rufs_releasedir(const char *path, struct fuse_file_info *fi) {
 }
 
 static int rufs_create(const char *path, mode_t mode, struct fuse_file_info *fi) {
+	printf("inside rufs_create\n");
 	// Step 1: Use dirname() and basename() to separate parent directory path and target file name 
 	char* path_copy = strdup(path);
     char* parent_dir_path = dirname(path_copy);
-    char* target_dir_name = basename(path_copy);
+    char* target_dir_name = basename(strdup(path));
 	// Step 2: Call get_node_by_path() to get inode of parent directory
 	struct inode *parent_inode = (struct inode*)malloc(sizeof(struct inode)); 
 
@@ -519,9 +580,11 @@ static int rufs_create(const char *path, mode_t mode, struct fuse_file_info *fi)
 	// Step 5: Update inode for target file
 	struct inode* fileInode = (struct inode*)malloc(sizeof(struct inode));
 	fileInode->ino=availableInode;
+	fileInode->direct_ptr[0]=get_avail_blkno;
+	
 	struct stat * rstat = (struct stat*)malloc(sizeof(struct stat));
 	
-	rstat->st_mode   = S_IFREG | 0755;
+	rstat->st_mode   = S_IFREG | 0666;
 		rstat->st_nlink  = 2;
 		time(&rstat->st_mtime);
 		rstat->st_blksize=BLOCK_SIZE;
@@ -535,7 +598,7 @@ static int rufs_create(const char *path, mode_t mode, struct fuse_file_info *fi)
 }
 
 static int rufs_open(const char *path, struct fuse_file_info *fi) {
-
+	printf("inside rufs_open\n");
 	// Step 1: Call get_node_by_path() to get inode from path
 	uint16_t ino = malloc(sizeof(uint16_t));
 	struct inode *toGet = malloc(sizeof(struct inode));
@@ -546,7 +609,7 @@ static int rufs_open(const char *path, struct fuse_file_info *fi) {
 }
 
 static int rufs_read(const char *path, char *buffer, size_t size, off_t offset, struct fuse_file_info *fi) {
-
+	printf("inside rufs_read\n");
 	// Step 1: You could call get_node_by_path() to get inode from path
 	struct inode inode;
 	int inum = get_node_by_path(path, 1, &inode);
@@ -569,6 +632,7 @@ static int rufs_read(const char *path, char *buffer, size_t size, off_t offset, 
 }
 
 static int rufs_write(const char *path, const char *buffer, size_t size, off_t offset, struct fuse_file_info *fi) {
+	printf("inside rufs_write\n");
 	// Step 1: You could call get_node_by_path() to get inode from path
 	struct inode inode;
 	int inum = get_node_by_path(path, 1, &inode);
